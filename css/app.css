@@ -342,6 +342,19 @@ textarea {
   .sheet { border-radius: 34px; border-bottom: 3px solid var(--line); margin-bottom: 24px; }
 }
 
+@media (min-width: 1000px) {
+  .top, main { max-width: 1120px; }
+  main { padding-left: 32px; padding-right: 32px; }
+  .top { padding-left: 32px; padding-right: 32px; }
+  .grid, .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 20px; }
+  .actions { max-width: 560px; }
+  .card .art { width: 110px; height: 110px; }
+  .card .name { font-size: 24px; }
+  .big-streak, .heat-wrap { max-width: 720px; }
+  #view > section:last-child .statrow { max-width: 720px; }
+  .sticky .btn { max-width: 480px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

@@ -24,9 +24,31 @@ function fraction(text, maxDen = 20) {
 
 function guesses(text) {
   const f = fraction(text);
-  if (!f) return null;
-  if (f.num === null) return { value: f.den + 1, won: false, label: `X/${f.den}` };
-  return { value: f.num, won: true, label: `${f.num}/${f.den}` };
+  if (f) {
+    if (f.num === null) return { value: f.den + 1, won: false, label: `X/${f.den}` };
+    return { value: f.num, won: true, label: `${f.num}/${f.den}` };
+  }
+  const m = text.match(/(\d{1,3})\s*(guesses|guess|tries|try|attempts?)\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return { value: n, won: true, label: n === 1 ? '1 guess' : `${n} guesses` };
+}
+
+// Rows of red/yellow/green squares, where the first green is the guess you got it on.
+function squares(text) {
+  const marks = [...text].filter((ch) => ['\u{1F7E5}', '\u{1F7E8}', '\u{1F7E9}', '⬛', '⬜'].includes(ch));
+  if (!marks.length) return guesses(text);
+  const i = marks.indexOf(GREEN);
+  return i < 0 ? { value: 7, won: false, label: 'Missed it' } : { value: i + 1, won: true, label: `${i + 1}/6` };
+}
+
+// Krillion: depth in metres if it's there, else points, else just done.
+function dive(text) {
+  const d = text.match(/(\d[\d,.]*)\s?(m|meters|metres)\b/i);
+  if (d) { const n = Math.round(Number(d[1].replace(/,/g, ''))); return { value: n, won: true, label: `${n.toLocaleString()} m deep` }; }
+  const p = text.match(/(\d[\d,]*)\s*(pts|points)\b/i);
+  if (p) { const n = Number(p[1].replace(/,/g, '')); return { value: n, won: true, label: `${n.toLocaleString()} pts` }; }
+  return { value: null, won: true, label: 'Done' };
 }
 
 function groups(text) {
@@ -53,6 +75,13 @@ function multi(text, boards) {
   return { value: won ? total : total + (boards - solved.length) * 10, won, label: won ? `${total} guesses` : `${solved.length}/${boards} solved` };
 }
 
+function grid9(text) {
+  const f = fraction(text, 9);
+  if (!f) return null;
+  const n = f.num ?? 0;
+  return { value: n, won: n > 0, label: `${n}/9` };
+}
+
 function time(text) {
   const m = text.match(/(\d{1,2}):(\d{2})/);
   if (!m) return null;
@@ -74,25 +103,19 @@ const PARSERS = [
   { game: 'flagle', test: /#?flagle\b/i, read: guesses },
   { game: 'tradle', test: /#?tradle\b/i, read: guesses },
   {
+    game: 'globle-capitals', test: /globle[\s:-]*capitals/i,
+    read: (t) => { const m = t.match(/=\s*(\d+)/) || t.match(/(\d+)\s*guess/i); if (!m) return null; const n = Number(m[1]); return { value: n, won: true, label: n === 1 ? '1 guess' : `${n} guesses` }; },
+  },
+  {
     game: 'globle', test: /globle/i,
     read: (t) => { const m = t.match(/=\s*(\d+)/) || t.match(/(\d+)\s*guess/i); if (!m) return null; const n = Number(m[1]); return { value: n, won: true, label: plural(n, 'guess').replace('guesss', 'guesses') }; },
   },
   { game: 'quordle', test: /quordle/i, read: (t) => multi(t, 4) },
   { game: 'octordle', test: /octordle/i, read: (t) => multi(t, 8) },
-  {
-    game: 'framed', test: /^\s*framed\b/im,
-    read: (t) => {
-      const line = t.split('\n').find((l) => l.includes(RED) || l.includes(GREEN));
-      if (!line) return null;
-      const marks = [...line].filter((ch) => ch === RED || ch === GREEN);
-      const i = marks.indexOf(GREEN);
-      return i < 0 ? { value: 7, won: false, label: 'Missed it' } : { value: i + 1, won: true, label: `${i + 1}/6` };
-    },
-  },
-  {
-    game: 'krillion', test: /krillion/i,
-    read: (t) => { const m = t.match(/([\d,]+)\s?m\b/i); if (!m) return { value: null, won: true, label: 'Done' }; const d = Number(m[1].replace(/,/g, '')); return { value: d, won: true, label: `${d.toLocaleString()} m deep` }; },
-  },
+  { game: 'framed', test: /^\s*framed\b/im, read: squares },
+  { game: 'episode', test: /^\s*episode\s*#?\d+/im, read: squares },
+  { game: 'guessthegame', test: /guessthe\.?game/i, read: squares },
+  { game: 'krillion', test: /krillion|daily dive|\u{1F990}/iu, read: dive },
   {
     game: 'travle', test: /#?travle\b/i,
     read: (t) => { const m = t.match(/\s([+-]\d+)\b/); if (/perfect/i.test(t)) return { value: 0, won: true, label: 'Perfect' }; if (!m) return { value: null, won: true, label: 'Done' }; const n = Number(m[1]); return { value: n, won: true, label: n > 0 ? `+${n}` : `${n}` }; },
@@ -101,10 +124,10 @@ const PARSERS = [
     game: 'waffle', test: /#?waffle/i,
     read: (t) => { const f = fraction(t, 5); if (!f) return null; if (f.num === null) return { value: 0, won: false, label: 'No stars' }; return { value: f.num, won: true, label: plural(f.num, 'star') }; },
   },
-  {
-    game: 'immaculate', test: /immaculate\s*grid/i,
-    read: (t) => { const f = fraction(t, 9); if (!f) return null; const n = f.num ?? 0; return { value: n, won: n > 0, label: `${n}/9` }; },
-  },
+  { game: 'ig-basketball', test: /immaculate\s*grid[\s\S]*?(basketball|hoops|\u{1F3C0})|(basketball|\u{1F3C0})[\s\S]*?immaculate\s*grid/iu, read: grid9 },
+  { game: 'ig-hockey', test: /immaculate\s*grid[\s\S]*?(hockey|\u{1F3D2})|(hockey|\u{1F3D2})[\s\S]*?immaculate\s*grid/iu, read: grid9 },
+  { game: 'ig-football', test: /immaculate\s*grid[\s\S]*?(football|nfl|\u{1F3C8})|(football|nfl|\u{1F3C8})[\s\S]*?immaculate\s*grid/iu, read: grid9 },
+  { game: 'immaculate', test: /immaculate\s*grid/i, read: grid9 },
   {
     game: 'timeguessr', test: /timeguessr/i,
     read: (t) => { const m = t.match(/([\d,]{3,})\s*\/\s*50,?000/); if (!m) return null; const n = Number(m[1].replace(/,/g, '')); return { value: n, won: true, label: `${n.toLocaleString()} pts` }; },
@@ -118,9 +141,9 @@ const PARSERS = [
 // Last resort: find a game's name in the text, then look for a score.
 const BY_NAME = [...GAMES].sort((a, b) => b.name.length - a.name.length);
 
-export function parseResult(raw) {
-  const text = String(raw || '').trim();
-  if (!text) return null;
+const readFor = (g, text) => (g.unit === 'time' && time(text)) || guesses(text) || { value: null, won: true, label: 'Done' };
+
+function detect(text) {
   for (const p of PARSERS) {
     if (!p.test.test(text)) continue;
     const r = p.read(text);
@@ -128,9 +151,20 @@ export function parseResult(raw) {
   }
   const flat = squash(text);
   const g = BY_NAME.find((x) => flat.includes(squash(x.name)));
-  if (!g) return null;
-  const r = (g.unit === 'time' && time(text)) || guesses(text) || { value: null, won: true, label: 'Done' };
-  return { game: g.id, ...r };
+  return g ? { game: g.id, ...readFor(g, text) } : null;
+}
+
+// hint = the game whose card you opened. If the text clearly belongs to another
+// game it goes there; if nothing recognises it, it's logged for the hinted game.
+export function parseResult(raw, hint = null) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const found = detect(text);
+  if (found || !hint) return found;
+  const own = PARSERS.find((p) => p.game === hint);
+  const g = GAMES.find((x) => x.id === hint);
+  const r = (own && own.read(text)) || (g && readFor(g, text));
+  return r ? { game: hint, ...r } : null;
 }
 
 export { fmtTime };

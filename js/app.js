@@ -21,7 +21,7 @@ function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* private mode: keep going in memory */ }
 }
 
-let tab = state.onboarded ? 'today' : 'games';
+let tab = state.onboarded ? 'today' : 'quiz';
 let filter = 'all';
 const bored = { mode: 'mine', len: 'any', pick: null };
 
@@ -245,14 +245,15 @@ function viewStats() {
     </section>`;
 }
 
-function tile(g) {
-  const on = state.rotation.includes(g.id);
+function tile(g, { on = state.rotation.includes(g.id), attr = 'data-toggle', why = '' } = {}) {
+  const tags = [why && `<span class="why">${esc(why)}</span>`, g.pop === 'niche' && '<span class="why gem">Hidden gem</span>'].filter(Boolean).join('');
   return `<article class="tile${on ? ' on' : ''}" style="--c:${g.color}">
-    <button class="tile-main" data-toggle="${g.id}" aria-pressed="${on}">
+    <button class="tile-main" ${attr}="${g.id}" aria-pressed="${on}">
       <span class="tile-check" aria-hidden="true">${on ? CHECK : PLUS}</span>
       <span class="art">${g.icon}</span>
       <span class="t-name">${esc(g.name)}</span>
       <span class="t-blurb">${esc(g.blurb)}</span>
+      ${tags ? `<span class="t-tags">${tags}</span>` : ''}
     </button>
     <div class="t-foot">
       <span class="pill">${g.mins} min</span>
@@ -269,11 +270,141 @@ function viewGames() {
     .map(([k, label]) => `<button class="chip" data-filter="${k}" aria-pressed="${filter === k}">${label}</button>`).join('');
   return `
     ${onb
-      ? `<section class="intro"><h1 class="page-title">Pick your games</h1><p>Tap the ones you play every day. You can change this any time.</p></section>`
-      : `<h1 class="page-title">All games</h1><p class="muted under-title">${n} in your rotation. Tap a game to add or remove it.</p>`}
+      ? `<section class="intro"><h1 class="page-title">Pick your games</h1><p>Tap the ones you play every day. You can change this any time.</p><button class="skip" data-act="quiz">Help me pick instead</button></section>`
+      : `<h1 class="page-title">All games</h1><p class="muted under-title">${n} in your rotation, ${GAMES.length} to choose from. Tap a game to add or remove it.</p>
+         <button class="btn gum find" data-act="quiz">Find games for me</button>`}
     <div class="chips scroll" role="group" aria-label="Filter games">${chips}</div>
     <div class="tiles">${list.map(tile).join('')}</div>
     ${onb ? `<div class="sticky"><button class="btn sun wide" data-act="start" ${n ? '' : 'disabled'}>${n ? `Start with ${n} game${n > 1 ? 's' : ''}` : 'Pick at least one game'}</button></div>` : ''}`;
+}
+
+/* ---------- quiz: recommends a starter rotation ---------- */
+
+const INTERESTS = [
+  ['words', 'Words', 'wordle'], ['geo', 'Geography', 'globle'], ['sports', 'Sports', 'poeltl'], ['trivia', 'Trivia', 'krillion'],
+  ['music', 'Music', 'bandle'], ['movies', 'Movies & TV', 'framed'], ['gaming', 'Video games', 'guessthegame'], ['anime', 'Anime', 'narutodle'],
+  ['history', 'History', 'chronophoto'], ['food', 'Food', 'foodguessr'], ['animals', 'Animals & plants', 'metazooa'], ['logic', 'Logic & math', 'queens'],
+];
+const SPORTS = [['basketball', 'Basketball'], ['soccer', 'Soccer'], ['baseball', 'Baseball'], ['hockey', 'Hockey'], ['nfl', 'Football']];
+const TIMES = [
+  ['5', 'About 5 minutes', 'One or two quick ones', 6],
+  ['15', 'About 15 minutes', 'A proper little routine', 16],
+  ['30', '30 minutes or more', 'Bring them all on', 40],
+];
+const POPS = [
+  ['big', 'The big ones', 'The games everyone talks about'],
+  ['mix', 'A bit of both', 'Some famous ones, some you’ve never heard of'],
+  ['gems', 'Hidden gems', 'Small games most people haven’t found yet'],
+];
+const WHY = {
+  words: 'words', geo: 'geography', sports: 'sports', basketball: 'basketball', soccer: 'soccer', baseball: 'baseball',
+  hockey: 'hockey', nfl: 'football', trivia: 'trivia', music: 'music', movies: 'movies and TV', gaming: 'video games',
+  anime: 'anime', history: 'history', food: 'food', animals: 'animals and plants', logic: 'logic', math: 'math',
+};
+const quiz = { step: 0, interests: new Set(), subs: new Set(), time: '15', pop: 'mix', picks: [], more: [], chosen: new Set() };
+
+function startQuiz() {
+  const saved = state.quiz || {};
+  Object.assign(quiz, {
+    step: 0, interests: new Set(saved.interests || []), subs: new Set(saved.subs || []),
+    time: saved.time || '15', pop: saved.pop || 'mix',
+  });
+  tab = 'quiz';
+  closeSheet();
+  render();
+  window.scrollTo(0, 0);
+}
+
+function recommend() {
+  const want = [...quiz.interests].filter((i) => i !== 'sports');
+  if (quiz.interests.has('sports')) want.push(...(quiz.subs.size ? quiz.subs : SPORTS.map((s) => s[0])), 'sports');
+  if (quiz.interests.has('logic')) want.push('math');
+  const budget = TIMES.find((t) => t[0] === quiz.time)[3];
+  const bonus = { big: { big: 6, cult: 3, niche: 0 }, mix: { big: 3, cult: 4, niche: 3 }, gems: { big: 0, cult: 3, niche: 6 } }[quiz.pop];
+  const sc = Object.fromEntries(GAMES.map((g) => [g.id, bonus[g.pop] + Math.random() * 2.5]));
+  const lists = want.map((t) => GAMES.filter((g) => g.tags.includes(t)).sort((a, b) => sc[b.id] - sc[a.id]).map((g) => ({ g, why: t })));
+  const picks = [];
+  const seen = new Set();
+  let total = 0;
+  let added = true;
+  while (added) { // take turns across interests so one topic doesn't eat the whole list
+    added = false;
+    for (const list of lists) {
+      const next = list.find((x) => !seen.has(x.g.id) && (total + x.g.mins <= budget || picks.length < 2));
+      if (!next) continue;
+      picks.push(next);
+      seen.add(next.g.id);
+      total += next.g.mins;
+      added = true;
+    }
+  }
+  const more = [];
+  for (const x of lists.flat().sort((a, b) => sc[b.g.id] - sc[a.g.id])) {
+    if (more.length >= 6) break;
+    if (!seen.has(x.g.id)) { seen.add(x.g.id); more.push(x); }
+  }
+  quiz.picks = picks;
+  quiz.more = more;
+  quiz.chosen = new Set(picks.map((x) => x.g.id));
+}
+
+function viewQuiz() {
+  if (quiz.step === 3) return viewPicks();
+  const onb = !state.onboarded;
+  const titles = ['What are you into?', 'How long do you play a day?', 'Big names or hidden gems?'];
+  const rows = (list, key, cur) => `<div class="rows">${list.map(([k, t, d]) =>
+    `<button class="opt-row" data-${key}="${k}" aria-pressed="${cur === k}"><span class="or-t">${t}</span><span class="or-d">${d}</span></button>`).join('')}</div>`;
+  let body;
+  if (quiz.step === 0) {
+    body = `<p class="q-sub">Pick as many as you like.</p>
+      <div class="opts">${INTERESTS.map(([k, label, icon]) => `<button class="opt" data-q-int="${k}" aria-pressed="${quiz.interests.has(k)}" style="--c:${byId[icon].color}"><span class="opt-art">${byId[icon].icon}</span><span>${label}</span></button>`).join('')}</div>
+      ${quiz.interests.has('sports') ? `<p class="sec-title">Which sports? Leave blank for all.</p><div class="chips">${SPORTS.map(([k, l]) => `<button class="chip" data-q-sub="${k}" aria-pressed="${quiz.subs.has(k)}">${l}</button>`).join('')}</div>` : ''}
+      ${onb ? '<button class="skip" data-tab="games">Skip this, I’ll pick games myself</button>' : ''}`;
+  } else if (quiz.step === 1) {
+    body = rows(TIMES, 'q-time', quiz.time);
+  } else {
+    body = rows(POPS, 'q-pop', quiz.pop);
+  }
+  const canNext = quiz.step > 0 || quiz.interests.size > 0;
+  return `<p class="q-step">Question ${quiz.step + 1} of 3</p>
+    <h1 class="page-title">${titles[quiz.step]}</h1>
+    ${body}
+    <div class="sticky"><div class="sticky-row">
+      ${quiz.step > 0 || !onb ? `<button class="btn" data-act="q-back">${quiz.step > 0 ? 'Back' : 'Cancel'}</button>` : ''}
+      <button class="btn sun" data-act="q-next" ${canNext ? '' : 'disabled'}>${quiz.step === 2 ? 'Show my games' : canNext ? 'Next' : 'Pick at least one'}</button>
+    </div></div>`;
+}
+
+function viewPicks() {
+  const onb = !state.onboarded;
+  const n = quiz.chosen.size;
+  const mins = [...quiz.chosen].reduce((a, id) => a + byId[id].mins, 0);
+  const t = (x) => tile(x.g, { on: quiz.chosen.has(x.g.id), attr: 'data-q-pick', why: `You picked ${WHY[x.why]}` });
+  return `<p class="q-step">Your picks</p>
+    <h1 class="page-title">Here’s your rotation</h1>
+    <p class="q-sub">${n} game${n === 1 ? '' : 's'}, about ${mins} minutes a day. Tap one to drop it.</p>
+    <div class="tiles">${quiz.picks.map(t).join('')}</div>
+    ${quiz.more.length ? `<p class="sec-title">You might also like</p><div class="tiles">${quiz.more.map(t).join('')}</div>` : ''}
+    <button class="skip" data-act="q-redo">Change my answers</button>
+    <div class="sticky"><div class="sticky-row">
+      <button class="btn sun" data-act="q-done" ${n ? '' : 'disabled'}>${onb ? `Start with ${n} game${n === 1 ? '' : 's'}` : `Add ${n === 1 ? 'it' : 'them'} to my games`}</button>
+    </div></div>`;
+}
+
+function quizDone() {
+  if (!state.onboarded) {
+    state.rotation = [...quiz.chosen];
+    state.onboarded = true;
+  } else {
+    const added = [...quiz.chosen].filter((id) => !state.rotation.includes(id));
+    state.rotation.push(...added);
+    toast(added.length ? `Added ${added.length} game${added.length === 1 ? '' : 's'}` : 'You already had those');
+  }
+  checkFull();
+  save();
+  tab = 'today';
+  render();
+  window.scrollTo(0, 0);
 }
 
 /* ---------- sheets ---------- */
@@ -394,6 +525,8 @@ function openSettings(wipeArmed = false) {
     <p class="sec-title">Reminder</p>
     <p class="muted">Add a daily 9 pm reminder to your calendar so the streak doesn’t slip.</p>
     <button class="btn" data-act="ics">Add calendar reminder</button>
+    <p class="sec-title">Find more games</p>
+    <button class="btn" data-act="quiz">Take the quiz again</button>
     <p class="sec-title">Backup</p>
     <p class="muted">Your games and scores live on this phone only. Save a backup file now and then.</p>
     <div class="row"><button class="btn" data-act="export">Save backup</button><button class="btn" data-act="import">Load backup</button></div>
@@ -478,9 +611,9 @@ function maybeWelcomeBack() {
 
 function render() {
   applyTheme();
-  $('#view').innerHTML = tab === 'today' ? viewToday() : tab === 'stats' ? viewStats() : viewGames();
-  $('#tabs').hidden = !state.onboarded;
-  document.body.classList.toggle('onboarding', !state.onboarded);
+  $('#view').innerHTML = tab === 'today' ? viewToday() : tab === 'stats' ? viewStats() : tab === 'quiz' ? viewQuiz() : viewGames();
+  $('#tabs').hidden = !state.onboarded || tab === 'quiz';
+  document.body.classList.toggle('onboarding', !state.onboarded || tab === 'quiz');
   document.querySelectorAll('#tabs [data-tab]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.tab === tab)));
 }
 
@@ -493,9 +626,15 @@ function toggle(id) {
 }
 
 document.addEventListener('click', async (ev) => {
-  const el = ev.target.closest('[data-tab],[data-play],[data-log],[data-act],[data-toggle],[data-chip],[data-filter],[data-theme-set]');
+  const el = ev.target.closest('[data-tab],[data-play],[data-log],[data-act],[data-toggle],[data-chip],[data-filter],[data-theme-set],[data-q-int],[data-q-sub],[data-q-time],[data-q-pop],[data-q-pick]');
   if (!el || el.disabled) return;
   const d = el.dataset;
+  const flip = (set, v) => (set.has(v) ? set.delete(v) : set.add(v));
+  if (d.qInt) { flip(quiz.interests, d.qInt); if (!quiz.interests.has('sports')) quiz.subs.clear(); render(); return; }
+  if (d.qSub) { flip(quiz.subs, d.qSub); render(); return; }
+  if (d.qTime) { quiz.time = d.qTime; render(); return; }
+  if (d.qPop) { quiz.pop = d.qPop; render(); return; }
+  if (d.qPick) { flip(quiz.chosen, d.qPick); render(); return; }
   if (d.tab) { tab = d.tab; closeSheet(); render(); window.scrollTo(0, 0); return; }
   if (d.play) { play(d.play); return; }
   if (d.log) { openLog(d.log); return; }
@@ -510,6 +649,25 @@ document.addEventListener('click', async (ev) => {
     case 'spin': bored.pick = pickBored(); openBored(); break;
     case 'settings': openSettings(); break;
     case 'start': state.onboarded = true; tab = 'today'; save(); render(); window.scrollTo(0, 0); break;
+    case 'quiz': startQuiz(); break;
+    case 'q-next':
+      if (quiz.step < 2) quiz.step++;
+      else {
+        recommend();
+        quiz.step = 3;
+        state.quiz = { interests: [...quiz.interests], subs: [...quiz.subs], time: quiz.time, pop: quiz.pop };
+        save();
+      }
+      render();
+      window.scrollTo(0, 0);
+      break;
+    case 'q-back':
+      if (quiz.step > 0) quiz.step--; else tab = 'games';
+      render();
+      window.scrollTo(0, 0);
+      break;
+    case 'q-redo': quiz.step = 0; render(); window.scrollTo(0, 0); break;
+    case 'q-done': quizDone(); break;
     case 'clip': {
       const t = await readClip();
       if (t === null) showErr('Your browser blocked the clipboard. Press and hold in the box, then tap Paste.');
@@ -519,7 +677,7 @@ document.addEventListener('click', async (ev) => {
     case 'logpaste': {
       const text = $('#pasteBox').value;
       if (!text.trim()) { showErr('Paste the share text first.'); break; }
-      const r = parseResult(text);
+      const r = parseResult(text, d.id || null);
       if (!r) { showErr(d.id ? 'Couldn’t find a score in that. Tap “Just mark it done” instead.' : 'Couldn’t tell which game that’s from. Open the game’s card and mark it done there.'); break; }
       closeSheet();
       commit(r);
@@ -538,7 +696,7 @@ document.addEventListener('click', async (ev) => {
     case 'export': download(`rotation-backup-${localKey()}.json`, 'application/json', JSON.stringify(state)); break;
     case 'import': $('#importFile').click(); break;
     case 'wipe':
-      if (d.armed === 'true') { state = fresh(); save(); tab = 'games'; closeSheet(); render(); toast('Everything cleared'); }
+      if (d.armed === 'true') { state = fresh(); save(); tab = 'quiz'; quiz.step = 0; quiz.interests.clear(); quiz.subs.clear(); closeSheet(); render(); toast('Everything cleared'); }
       else openSettings(true);
       break;
     default: break;

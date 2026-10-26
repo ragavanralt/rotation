@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rotation</title>
+  <meta name="description" content="Your daily games in one place, with streaks and scores.">
+  <meta name="theme-color" content="#BDE6FF">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Rotation">
+  <link rel="preload" href="fonts/bagel-fat-one.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/fredoka.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="logo" href="./" aria-label="Rotation">r<span class="o" style="--c:#FF5A4E"></span>tati<span class="o" style="--c:#FFD23F"></span>n</a>
+    <button class="icon-btn" data-act="settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.6" fill="#FFD23F"/><circle cx="15" cy="17" r="2.6" fill="#FF6FB5"/></g></svg>
+    </button>
+  </header>
+  <main id="view"></main>
+  <nav id="tabs" class="tabs" aria-label="Pages" hidden>
+    <button data-tab="today">Today</button>
+    <button data-tab="stats">Stats</button>
+    <button data-tab="games">Games</button>
+  </nav>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
